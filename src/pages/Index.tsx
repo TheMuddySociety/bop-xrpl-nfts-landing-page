@@ -1,13 +1,29 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { DottedSurface } from '@/components/ui/dotted-surface';
+import { Navbar } from '@/components/Navbar';
+import { Hero } from '@/components/Hero';
+import { NFTShowcase } from '@/components/NFTShowcase';
+import { About } from '@/components/About';
+import { Roadmap } from '@/components/Roadmap';
+import { Footer } from '@/components/Footer';
 
 const Index = () => {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
-      </div>
-    </div>
+    <DottedSurface className="min-h-screen">
+      <Navbar />
+      <main>
+        <Hero />
+        <section id="collection">
+          <NFTShowcase />
+        </section>
+        <section id="about">
+          <About />
+        </section>
+        <section id="roadmap">
+          <Roadmap />
+        </section>
+      </main>
+      <Footer />
+    </DottedSurface>
   );
 };
 
