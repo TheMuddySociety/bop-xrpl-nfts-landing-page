@@ -1,19 +1,28 @@
 import { cn } from '@/lib/utils';
-import React, { useEffect, useRef } from 'react';
+import { useScroll, useMotionValueEvent } from 'motion/react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 
 type DottedSurfaceProps = Omit<React.ComponentProps<'div'>, 'ref'>;
 
 export function DottedSurface({ className, children, ...props }: DottedSurfaceProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const sceneRef = useRef<{
-    scene: THREE.Scene;
-    camera: THREE.PerspectiveCamera;
-    renderer: THREE.WebGLRenderer;
-    particles: THREE.Points[];
-    animationId: number;
-    count: number;
-  } | null>(null);
+	const [scrollProgress, setScrollProgress] = useState(0);
+	const { scrollY } = useScroll();
+
+	useMotionValueEvent(scrollY, 'change', (latest) => {
+		// Normalize scroll to 0-1 range based on viewport height
+		setScrollProgress(Math.min(latest / window.innerHeight, 1));
+	});
+	const containerRef = useRef<HTMLDivElement>(null);
+	const sceneRef = useRef<{
+		scene: THREE.Scene;
+		camera: THREE.PerspectiveCamera;
+		renderer: THREE.WebGLRenderer;
+		particles: THREE.Points[];
+		animationId: number;
+		count: number;
+		scrollOffset: number;
+	} | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -97,10 +106,12 @@ export function DottedSurface({ className, children, ...props }: DottedSurfacePr
         for (let iy = 0; iy < AMOUNTY; iy++) {
           const index = i * 3;
 
-          // Animate Y position with sine waves
-          positionsArray[index + 1] =
-            Math.sin((ix + count) * 0.3) * 50 +
+          // Animate Y position with sine waves + parallax from scroll
+          const baseWave = Math.sin((ix + count) * 0.3) * 50 +
             Math.sin((iy + count) * 0.5) * 50;
+          const parallaxOffset = scrollProgress * 100; // Scroll creates vertical offset
+
+          positionsArray[index + 1] = baseWave + parallaxOffset;
 
           i++;
         }
@@ -124,15 +135,16 @@ export function DottedSurface({ className, children, ...props }: DottedSurfacePr
     // Start animation
     animate();
 
-    // Store references
-    sceneRef.current = {
-      scene,
-      camera,
-      renderer,
-      particles: [points],
-      animationId,
-      count,
-    };
+		// Store references
+		sceneRef.current = {
+			scene,
+			camera,
+			renderer,
+			particles: [points],
+			animationId,
+			count,
+			scrollOffset: scrollProgress,
+		};
 
     // Cleanup function
     return () => {
@@ -162,7 +174,7 @@ export function DottedSurface({ className, children, ...props }: DottedSurfacePr
         }
       }
     };
-  }, []);
+  }, [scrollProgress]);
 
   return (
     <div className={cn('relative', className)} {...props}>
