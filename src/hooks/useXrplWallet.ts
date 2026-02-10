@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 interface NFTData {
   tokenId: string;
@@ -15,12 +15,32 @@ interface WalletState {
   nfts: NFTData[];
   selectedNft: NFTData | null;
   error: string | null;
+  sdkReady: boolean;
 }
 
 // Board of Peace NFT Collection details - Update these with actual values
 const BOP_NFT_ISSUER = ''; // Leave empty to accept all NFTs for now
 
+const XAMAN_API_KEY = import.meta.env.VITE_XAMAN_API_KEY as string;
+
+// Load XUMM SDK from CDN
+function loadXummScript(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if ((window as any).Xumm) {
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://xumm.app/assets/cdn/xumm.min.js';
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Xaman SDK'));
+    document.head.appendChild(script);
+  });
+}
+
 export function useXrplWallet() {
+  const xummRef = useRef<any>(null);
   const [state, setState] = useState<WalletState>({
     isConnecting: false,
     isConnected: false,
@@ -28,22 +48,46 @@ export function useXrplWallet() {
     nfts: [],
     selectedNft: null,
     error: null,
+    sdkReady: false,
   });
 
-  const verifyWallet = useCallback(async (walletAddress: string) => {
+  // Load and initialize XUMM SDK
+  useEffect(() => {
+    if (!XAMAN_API_KEY) return;
+
+    loadXummScript().then(() => {
+      const XummClass = (window as any).Xumm;
+      if (XummClass) {
+        xummRef.current = new XummClass(XAMAN_API_KEY);
+        setState(prev => ({ ...prev, sdkReady: true }));
+      }
+    }).catch((err) => {
+      console.error('Failed to load Xaman SDK:', err);
+    });
+  }, []);
+
+  const connectWallet = useCallback(async () => {
+    if (!xummRef.current) {
+      setState(prev => ({ ...prev, error: 'Xaman SDK not ready. Please try again.' }));
+      return;
+    }
+
     setState(prev => ({ ...prev, isConnecting: true, error: null }));
 
     try {
-      // Validate XRP address format
-      if (!isValidXrpAddress(walletAddress)) {
-        throw new Error('Invalid XRP wallet address format');
+      await xummRef.current.authorize();
+
+      // Get account address from the SDK
+      const account = await xummRef.current.user?.account;
+
+      if (!account) {
+        throw new Error('Could not retrieve wallet address. Authorization may have been cancelled.');
       }
 
-      // Fetch NFTs owned by this account from XRPL
-      const nfts = await fetchAccountNFTs(walletAddress);
-      
-      // Filter to only Board of Peace NFTs if issuer is set
-      const bopNfts = BOP_NFT_ISSUER 
+      // Fetch NFTs for this account
+      const nfts = await fetchAccountNFTs(account);
+
+      const bopNfts = BOP_NFT_ISSUER
         ? nfts.filter(nft => nft.issuer === BOP_NFT_ISSUER)
         : nfts;
 
@@ -52,7 +96,7 @@ export function useXrplWallet() {
           ...prev,
           isConnecting: false,
           isConnected: true,
-          walletAddress,
+          walletAddress: account,
           nfts: [],
           error: 'No Board of Peace NFTs found in this wallet. You need to hold a BOP NFT to register.',
         }));
@@ -63,16 +107,16 @@ export function useXrplWallet() {
         ...prev,
         isConnecting: false,
         isConnected: true,
-        walletAddress,
+        walletAddress: account,
         nfts: bopNfts,
         error: null,
       }));
     } catch (error) {
-      console.error('Wallet verification error:', error);
+      console.error('Wallet connection error:', error);
       setState(prev => ({
         ...prev,
         isConnecting: false,
-        error: error instanceof Error ? error.message : 'Failed to verify wallet',
+        error: error instanceof Error ? error.message : 'Failed to connect wallet',
       }));
     }
   }, []);
@@ -81,7 +125,14 @@ export function useXrplWallet() {
     setState(prev => ({ ...prev, selectedNft: nft }));
   }, []);
 
-  const disconnect = useCallback(() => {
+  const disconnect = useCallback(async () => {
+    if (xummRef.current) {
+      try {
+        await xummRef.current.logout();
+      } catch {
+        // Ignore logout errors
+      }
+    }
     setState({
       isConnecting: false,
       isConnected: false,
@@ -89,43 +140,36 @@ export function useXrplWallet() {
       nfts: [],
       selectedNft: null,
       error: null,
+      sdkReady: true,
     });
   }, []);
 
   return {
     ...state,
-    verifyWallet,
+    connectWallet,
     selectNft,
     disconnect,
   };
 }
 
-// Validate XRP address format
-function isValidXrpAddress(address: string): boolean {
-  // XRP addresses start with 'r' and are 25-35 characters
-  const xrpAddressRegex = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/;
-  return xrpAddressRegex.test(address);
-}
-
 // Fetch account NFTs from XRPL
 async function fetchAccountNFTs(account: string): Promise<NFTData[]> {
   try {
-    // Use XRPL mainnet cluster
     const response = await fetch('https://xrplcluster.com/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         method: 'account_nfts',
-        params: [{ 
-          account, 
+        params: [{
+          account,
           ledger_index: 'validated',
           limit: 100
         }],
       }),
     });
-    
+
     const data = await response.json();
-    
+
     if (data.result?.error) {
       if (data.result.error === 'actNotFound') {
         throw new Error('Wallet address not found on XRPL or has no NFTs');
@@ -134,8 +178,7 @@ async function fetchAccountNFTs(account: string): Promise<NFTData[]> {
     }
 
     const nfts = data.result?.account_nfts || [];
-    
-    // Parse NFT data
+
     const parsedNfts: NFTData[] = await Promise.all(
       nfts.map(async (nft: any) => {
         const metadata = await parseNFTMetadata(nft.URI);
@@ -159,30 +202,27 @@ async function fetchAccountNFTs(account: string): Promise<NFTData[]> {
 // Parse NFT metadata URI to extract image URL
 async function parseNFTMetadata(uri: string | undefined): Promise<{ image?: string; name?: string } | null> {
   if (!uri) return null;
-  
+
   try {
-    // Decode hex URI
     let decodedUri = uri;
     if (/^[0-9A-Fa-f]+$/.test(uri)) {
       decodedUri = hexToString(uri);
     }
-    
-    // Handle IPFS URIs
+
     if (decodedUri.startsWith('ipfs://')) {
       decodedUri = `https://ipfs.io/ipfs/${decodedUri.replace('ipfs://', '')}`;
     }
-    
-    // If it's a URL to JSON metadata, fetch it
+
     if (decodedUri.startsWith('http') && (decodedUri.includes('.json') || !decodedUri.match(/\.(png|jpg|jpeg|gif|webp)$/i))) {
       try {
         const response = await fetch(decodedUri);
         const metadata = await response.json();
-        
+
         let imageUrl = metadata.image || metadata.image_url;
         if (imageUrl?.startsWith('ipfs://')) {
           imageUrl = `https://ipfs.io/ipfs/${imageUrl.replace('ipfs://', '')}`;
         }
-        
+
         return {
           image: imageUrl,
           name: metadata.name,
@@ -191,8 +231,7 @@ async function parseNFTMetadata(uri: string | undefined): Promise<{ image?: stri
         return { image: decodedUri };
       }
     }
-    
-    // If it's a direct image URL
+
     return { image: decodedUri };
   } catch {
     return null;
