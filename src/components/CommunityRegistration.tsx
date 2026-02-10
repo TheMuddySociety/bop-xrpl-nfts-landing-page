@@ -20,7 +20,6 @@ interface FormData {
 
 export function CommunityRegistration() {
   const [isOpen, setIsOpen] = useState(false);
-  const [walletInput, setWalletInput] = useState('');
   const [projectImage, setProjectImage] = useState<File | null>(null);
   const [projectImagePreview, setProjectImagePreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -41,16 +40,11 @@ export function CommunityRegistration() {
     nfts,
     selectedNft,
     error: walletError,
-    verifyWallet,
+    sdkReady,
+    connectWallet,
     selectNft,
     disconnect,
   } = useXrplWallet();
-
-  const handleWalletVerify = () => {
-    if (walletInput.trim()) {
-      verifyWallet(walletInput.trim());
-    }
-  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -74,7 +68,7 @@ export function CommunityRegistration() {
     if (!walletAddress || !selectedNft) {
       toast({
         title: 'Wallet not verified',
-        description: 'Please verify your wallet and select an NFT',
+        description: 'Please connect your Xaman wallet and select an NFT',
         variant: 'destructive',
       });
       return;
@@ -94,7 +88,6 @@ export function CommunityRegistration() {
     try {
       let projectImageUrl = null;
 
-      // Upload project image if provided
       if (projectImage) {
         const fileExt = projectImage.name.split('.').pop();
         const fileName = `${walletAddress}-${Date.now()}.${fileExt}`;
@@ -114,7 +107,6 @@ export function CommunityRegistration() {
         projectImageUrl = urlData.publicUrl;
       }
 
-      // Insert registration into database
       const { error: insertError } = await supabase
         .from('community_registrations')
         .insert({
@@ -162,7 +154,6 @@ export function CommunityRegistration() {
       discordUrl: '',
       websiteUrl: '',
     });
-    setWalletInput('');
     setProjectImage(null);
     setProjectImagePreview(null);
     setIsSubmitted(false);
@@ -189,7 +180,7 @@ export function CommunityRegistration() {
           <DialogDescription className="text-muted-foreground">
             {isSubmitted 
               ? 'Your community is now live on the showcase.'
-              : 'Verify your Board of Peace NFT ownership to register your project.'
+              : 'Connect your Xaman wallet to verify Board of Peace NFT ownership.'
             }
           </DialogDescription>
         </DialogHeader>
@@ -210,45 +201,49 @@ export function CommunityRegistration() {
           </motion.div>
         ) : (
           <div className="space-y-6">
-            {/* Step 1: Verify Wallet */}
+            {/* Step 1: Connect Xaman Wallet */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isConnected ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
                   1
                 </div>
-                <Label className="font-semibold">Verify Your XRP Wallet</Label>
+                <Label className="font-semibold">Connect Your Xaman Wallet</Label>
               </div>
               
               {!isConnected ? (
                 <div className="space-y-2">
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Enter your XRP wallet address (r...)"
-                      value={walletInput}
-                      onChange={(e) => setWalletInput(e.target.value)}
-                      className="flex-1"
-                    />
-                    <Button 
-                      onClick={handleWalletVerify} 
-                      disabled={isConnecting || !walletInput.trim()}
-                      variant="outline"
-                    >
-                      {isConnecting ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        'Verify'
-                      )}
-                    </Button>
-                  </div>
+                  <Button 
+                    onClick={connectWallet} 
+                    disabled={isConnecting || !sdkReady}
+                    className="w-full"
+                    variant="outline"
+                  >
+                    {isConnecting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : !sdkReady ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Loading Xaman SDK...
+                      </>
+                    ) : (
+                      <>
+                        <Wallet className="w-4 h-4 mr-2" />
+                        Connect Xaman Wallet
+                      </>
+                    )}
+                  </Button>
                   <p className="text-xs text-muted-foreground">
-                    We'll check if your wallet holds a Board of Peace NFT
+                    Sign in with your Xaman wallet to verify Board of Peace NFT ownership
                   </p>
                 </div>
               ) : (
                 <div className="p-3 rounded-lg bg-muted/50 border border-border">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-xs text-muted-foreground">Verified Wallet</p>
+                      <p className="text-xs text-muted-foreground">Connected Wallet</p>
                       <p className="font-mono text-sm truncate max-w-[200px]">{walletAddress}</p>
                     </div>
                     <Button variant="ghost" size="sm" onClick={disconnect}>
