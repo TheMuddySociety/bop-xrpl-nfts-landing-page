@@ -31,7 +31,7 @@ function loadXummScript(): Promise<void> {
       return;
     }
     const script = document.createElement('script');
-    script.src = 'https://xumm.app/assets/cdn/xumm.min.js';
+    script.src = 'https://xaman.app/assets/cdn/xumm.min.js';
     script.async = true;
     script.onload = () => resolve();
     script.onerror = () => reject(new Error('Failed to load Xaman SDK'));
@@ -53,16 +53,23 @@ export function useXrplWallet() {
 
   // Load and initialize XUMM SDK
   useEffect(() => {
-    if (!XAMAN_API_KEY) return;
+    if (!XAMAN_API_KEY) {
+      console.warn('VITE_XAMAN_API_KEY is not set. Xaman wallet integration will not work.');
+      return;
+    }
 
     loadXummScript().then(() => {
       const XummClass = (window as any).Xumm;
       if (XummClass) {
         xummRef.current = new XummClass(XAMAN_API_KEY);
         setState(prev => ({ ...prev, sdkReady: true }));
+        console.log('Xaman SDK loaded successfully');
+      } else {
+        console.error('Xumm class not found on window after script load');
       }
     }).catch((err) => {
       console.error('Failed to load Xaman SDK:', err);
+      setState(prev => ({ ...prev, error: 'Failed to load Xaman SDK. Please refresh the page.' }));
     });
   }, []);
 
